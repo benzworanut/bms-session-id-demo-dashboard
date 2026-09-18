@@ -18,7 +18,7 @@ The BMS (Bangkok Medical Software) Session system provides secure authentication
 - Read-only operations via `/api/sql` endpoint
 - Session management and validation
 - Building dashboards and statistical displays
-- Accessing non-sensitive aggregate data
+- Accessing non-sensitive aggregate data    
 
 ## Architecture Flow
 
