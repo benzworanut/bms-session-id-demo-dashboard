@@ -201,3 +201,5 @@ Query Builder จะสร้าง SQL ที่เหมาะสมตาม�
 ## License
 
 Private — BMS (Bangkok Medical Software)
+#   b m s - s e s s i o n - i d - d e m o - d a s h b o a r d  
+ 
