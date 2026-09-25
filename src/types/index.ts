@@ -143,6 +143,40 @@ export interface DepartmentWorkload {
   visitCount: number;
 }
 
+export interface SpecialtyWorkload {
+  specialty: string
+  opdCount: number
+  ipdCount: number
+}
+
+export interface InsuranceGroup {
+  rightName: string
+  count: number
+}
+
+export interface IpdWardWorkload {
+  wardName: string
+  count: number
+}
+
+export interface OpdRoomWorkload {
+  roomName: string
+  count: number
+}
+
+export interface OpdDepartmentServiceWorkload {
+  departmentName: string
+  visitCount: number
+  labVisitCount: number
+  xrayVisitCount: number
+}
+
+export interface OpdDepartmentDiagnosisWorkload {
+  departmentName: string
+  patientCount: number
+  diagnosisCount: number
+}
+
 export interface DoctorWorkload {
   doctorCode: string;
   doctorName: string;
@@ -189,4 +223,12 @@ export interface OverviewStats {
   avgDailyVisitsThisMonth: number
   totalDoctors: number
   totalDepartments: number
+}
+
+/** Daily referral and telemedicine activity for the overview dashboard. */
+export interface ReferralStats {
+  referOut: number
+  referIn: number
+  referBack: number
+  telemed: number
 }

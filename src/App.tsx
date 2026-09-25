@@ -9,6 +9,7 @@ const Overview = lazy(() => import('@/pages/Overview'))
 const Trends = lazy(() => import('@/pages/Trends'))
 const DepartmentAnalytics = lazy(() => import('@/pages/DepartmentAnalytics'))
 const Demographics = lazy(() => import('@/pages/Demographics'))
+const OtherSystems = lazy(() => import('@/pages/OtherSystems'))
 
 function AppRoutes() {
   return (
@@ -18,6 +19,7 @@ function AppRoutes() {
         <Route path="/trends" element={<Trends />} />
         <Route path="/departments" element={<DepartmentAnalytics />} />
         <Route path="/demographics" element={<Demographics />} />
+        <Route path="/other-systems" element={<OtherSystems />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

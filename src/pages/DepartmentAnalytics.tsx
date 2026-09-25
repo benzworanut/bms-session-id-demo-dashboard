@@ -9,14 +9,27 @@ import {
   getDepartmentBreakdown,
   getDoctorWorkload,
   getDepartmentDailyTrend,
+  getOpdRoomBreakdown,
+  getOpdSpecialtyBreakdown,
+  getOpdInsuranceBreakdown,
+  getOpdSummary,
+  getOpdDepartmentServiceWorkload,
+  getOpdDepartmentDiagnosisWorkload,
 } from '@/services/kpiService'
 import { getDateRange } from '@/utils/dateUtils'
 import { DateRangePicker } from '@/components/dashboard/DateRangePicker'
-import { DepartmentChart } from '@/components/charts/DepartmentChart'
+import { OpdDepartmentChart } from '@/components/charts/OpdDepartmentChart'
+import { OpdRoomTable } from '@/components/dashboard/OpdRoomTable'
+import { OpdSpecialtyChart } from '@/components/charts/OpdSpecialtyChart'
+import { OpdDepartmentDiagnosisTable } from '@/components/dashboard/OpdDepartmentDiagnosisTable'
+import { OpdInsuranceTable } from '@/components/dashboard/OpdInsuranceTable'
+import { OpdDepartmentServiceTable } from '@/components/dashboard/OpdDepartmentServiceTable'
 import { DoctorTable } from '@/components/dashboard/DoctorTable'
 import { VisitTrendChart } from '@/components/charts/VisitTrendChart'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { KpiCard } from '@/components/dashboard/KpiCard'
+import { Activity, HeartPulse, Siren, Video, Send, Users, FlaskConical, ScanLine } from 'lucide-react'
 import type { DepartmentWorkload, DoctorWorkload, VisitTrend } from '@/types'
 
 export default function DepartmentAnalytics() {
@@ -48,6 +61,70 @@ export default function DepartmentAnalytics() {
     isLoading: isDepartmentsLoading,
   } = useQuery<DepartmentWorkload[]>({
     queryFn: departmentQueryFn,
+    enabled: connectionConfig !== null && session !== null,
+  })
+
+  const roomQueryFn = useCallback(
+    () => getOpdRoomBreakdown(connectionConfig!, session!.databaseType, startDate, endDate),
+    [connectionConfig, session, startDate, endDate],
+  )
+
+  const {
+    data: rooms,
+    isLoading: isRoomsLoading,
+  } = useQuery<Awaited<ReturnType<typeof getOpdRoomBreakdown>>>({
+    queryFn: roomQueryFn,
+    enabled: connectionConfig !== null && session !== null,
+  })
+
+  const specialtyQueryFn = useCallback(
+    () => getOpdSpecialtyBreakdown(connectionConfig!, session!.databaseType, startDate, endDate),
+    [connectionConfig, session, startDate, endDate],
+  )
+  const { data: specialties, isLoading: isSpecialtiesLoading } = useQuery<Awaited<ReturnType<typeof getOpdSpecialtyBreakdown>>>({
+    queryFn: specialtyQueryFn,
+    enabled: connectionConfig !== null && session !== null,
+  })
+
+  const insuranceQueryFn = useCallback(
+    () => getOpdInsuranceBreakdown(connectionConfig!, session!.databaseType, startDate, endDate),
+    [connectionConfig, session, startDate, endDate],
+  )
+  const { data: insuranceGroups, isLoading: isInsuranceLoading } = useQuery<Awaited<ReturnType<typeof getOpdInsuranceBreakdown>>>({
+    queryFn: insuranceQueryFn,
+    enabled: connectionConfig !== null && session !== null,
+  })
+
+  const serviceWorkloadQueryFn = useCallback(
+    () => getOpdDepartmentServiceWorkload(connectionConfig!, session!.databaseType, startDate, endDate),
+    [connectionConfig, session, startDate, endDate],
+  )
+  const { data: serviceWorkload, isLoading: isServiceWorkloadLoading } = useQuery<Awaited<ReturnType<typeof getOpdDepartmentServiceWorkload>>>({
+    queryFn: serviceWorkloadQueryFn,
+    enabled: connectionConfig !== null && session !== null,
+  })
+
+  const diagnosisQueryFn = useCallback(
+    () => getOpdDepartmentDiagnosisWorkload(connectionConfig!, session!.databaseType, startDate, endDate),
+    [connectionConfig, session, startDate, endDate],
+  )
+  const { data: diagnosisWorkload, isLoading: isDiagnosisLoading } = useQuery<Awaited<ReturnType<typeof getOpdDepartmentDiagnosisWorkload>>>({
+    queryFn: diagnosisQueryFn,
+    enabled: connectionConfig !== null && session !== null,
+  })
+
+  const summaryQueryFn = useCallback(
+    () => getOpdSummary(connectionConfig!, session!.databaseType, startDate, endDate),
+    [connectionConfig, session, startDate, endDate],
+  )
+  const {
+    data: opdSummary,
+    isLoading: isSummaryLoading,
+    isError: isSummaryError,
+    error: summaryError,
+    execute: retrySummary,
+  } = useQuery<Awaited<ReturnType<typeof getOpdSummary>>>({
+    queryFn: summaryQueryFn,
     enabled: connectionConfig !== null && session !== null,
   })
 
@@ -126,7 +203,7 @@ export default function DepartmentAnalytics() {
   // ---------------------------------------------------------------------------
   // Determine overall loading state for the date range picker
   // ---------------------------------------------------------------------------
-  const isAnyLoading = isDepartmentsLoading || isDoctorsLoading || isTrendLoading
+  const isAnyLoading = isSummaryLoading || isDepartmentsLoading || isRoomsLoading || isSpecialtiesLoading || isInsuranceLoading || isServiceWorkloadLoading || isDiagnosisLoading || isDoctorsLoading || isTrendLoading
 
   // ---------------------------------------------------------------------------
   // Render
@@ -135,7 +212,7 @@ export default function DepartmentAnalytics() {
     <div className="flex flex-col gap-6">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">การวิเคราะห์แผนก</h1>
+        <h1 className="text-2xl font-bold tracking-tight">การวิเคราะห์ OPD</h1>
         <p className="text-sm text-muted-foreground">
           รายละเอียดการเข้ารับบริการแยกตามแผนกและปริมาณงานแพทย์
         </p>
@@ -149,12 +226,33 @@ export default function DepartmentAnalytics() {
         isLoading={isAnyLoading}
       />
 
-      {/* Department breakdown chart */}
-      <DepartmentChart
-        data={departments ?? []}
-        isLoading={isDepartmentsLoading}
-        onDepartmentClick={handleDepartmentClick}
-      />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard title="ผู้ป่วยนอก (OPD) ครั้ง" value={opdSummary?.opd ?? null} icon={<Activity className="h-5 w-5" />} isLoading={isSummaryLoading} isError={isSummaryError} error={summaryError?.message} onRetry={retrySummary} description="จำนวนผู้รับบริการในช่วงวันที่เลือก" accentColor="text-blue-500" />
+        <KpiCard title="ผู้ป่วยนอก (OPD) คน" value={opdSummary?.opdPatients ?? null} icon={<Users className="h-5 w-5" />} isLoading={isSummaryLoading} isError={isSummaryError} error={summaryError?.message} onRetry={retrySummary} description="จำนวนผู้ป่วยนอกไม่ซ้ำคน" accentColor="text-green-500" />
+        <KpiCard title="ห้องฉุกเฉิน (ER)" value={opdSummary?.er ?? null} icon={<Siren className="h-5 w-5" />} isLoading={isSummaryLoading} isError={isSummaryError} error={summaryError?.message} onRetry={retrySummary} description="จำนวนผู้รับบริการฉุกเฉิน" accentColor="text-red-500" />
+        <KpiCard title="จำนวนผู้รับบริการ NCD" value={opdSummary?.ncd ?? null} icon={<HeartPulse className="h-5 w-5" />} isLoading={isSummaryLoading} isError={isSummaryError} error={summaryError?.message} onRetry={retrySummary} description="จำนวนผู้รับบริการ NCD" accentColor="text-amber-500" />
+        <KpiCard title="จำนวนผู้รับบริการ Telemed" value={opdSummary?.telemed ?? null} icon={<Video className="h-5 w-5" />} isLoading={isSummaryLoading} isError={isSummaryError} error={summaryError?.message} onRetry={retrySummary} description="จำนวนบริการ Telemed" accentColor="text-cyan-500" />
+        <KpiCard title="สั่ง LAB" value={opdSummary?.labOrders ?? null} icon={<FlaskConical className="h-5 w-5" />} isLoading={isSummaryLoading} isError={isSummaryError} error={summaryError?.message} onRetry={retrySummary} description="จำนวนรายการสั่งตรวจ LAB" accentColor="text-amber-500" />
+        <KpiCard title="สั่ง X-ray" value={opdSummary?.xrayOrders ?? null} icon={<ScanLine className="h-5 w-5" />} isLoading={isSummaryLoading} isError={isSummaryError} error={summaryError?.message} onRetry={retrySummary} description="จำนวนรายการสั่งตรวจ X-ray" accentColor="text-cyan-500" />
+        <KpiCard title="Refer out" value={opdSummary?.referOut ?? null} icon={<Send className="h-5 w-5" />} isLoading={isSummaryLoading} isError={isSummaryError} error={summaryError?.message} onRetry={retrySummary} description="จำนวนส่งต่อออก" accentColor="text-purple-500" />
+    </div>
+
+      {/* OPD workload charts */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <OpdDepartmentServiceTable data={serviceWorkload ?? []} isLoading={isServiceWorkloadLoading} />
+        <OpdDepartmentDiagnosisTable data={diagnosisWorkload ?? []} isLoading={isDiagnosisLoading} />
+        <OpdDepartmentChart
+          data={departments ?? []}
+          isLoading={isDepartmentsLoading}
+          onDepartmentClick={handleDepartmentClick}
+        />
+        <OpdRoomTable data={rooms ?? []} isLoading={isRoomsLoading} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <OpdSpecialtyChart data={specialties ?? []} isLoading={isSpecialtiesLoading} />
+        <OpdInsuranceTable data={insuranceGroups ?? []} isLoading={isInsuranceLoading} />
+      </div>
 
       {/* Drill-down section: shown when a department is selected */}
       {selectedDepartment && (

@@ -51,10 +51,10 @@ export function DoctorTable({ data, isLoading, className }: DoctorTableProps) {
                 #
               </TableHead>
               <TableHead className="uppercase text-xs tracking-wider text-muted-foreground">
-                ชื่อแพทย์
+                Doctor Name
               </TableHead>
               <TableHead className="text-right uppercase text-xs tracking-wider text-muted-foreground">
-                จำนวนผู้ป่วย
+                Patient Count
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -87,8 +87,8 @@ export function DoctorTable({ data, isLoading, className }: DoctorTableProps) {
       <div className={cn(className)}>
         <EmptyState
           icon={<Stethoscope className="h-8 w-8" />}
-          title="ไม่พบข้อมูลแพทย์ในช่วงเวลานี้"
-          description="ลองเลือกช่วงวันที่หรือแผนกอื่น"
+          title="No doctor data found for this period"
+          description="Try selecting a different date range or department"
         />
       </div>
     )
@@ -106,10 +106,10 @@ export function DoctorTable({ data, isLoading, className }: DoctorTableProps) {
               #
             </TableHead>
             <TableHead className="uppercase text-xs tracking-wider text-muted-foreground">
-              ชื่อแพทย์
+              Doctor Name
             </TableHead>
             <TableHead className="text-right uppercase text-xs tracking-wider text-muted-foreground">
-              จำนวนผู้ป่วย
+              Patient Count
             </TableHead>
           </TableRow>
         </TableHeader>
@@ -158,7 +158,7 @@ export function DoctorTable({ data, isLoading, className }: DoctorTableProps) {
           {/* Total row */}
           <TableRow className="border-t-2">
             <TableCell />
-            <TableCell className="font-bold">รวม</TableCell>
+            <TableCell className="font-bold">Total</TableCell>
             <TableCell className="text-right font-bold">
               {totalPatients.toLocaleString()}
             </TableCell>

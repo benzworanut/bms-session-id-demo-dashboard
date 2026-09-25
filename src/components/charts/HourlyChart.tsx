@@ -4,8 +4,8 @@
 
 import {
   ResponsiveContainer,
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -34,9 +34,14 @@ function formatHourLabel(hour: number): string {
 export function HourlyChart({
   data,
   isLoading,
-  selectedDate,
   className,
 }: HourlyChartProps) {
+  const chartTitle = 'สถิติความหนาแน่นของผู้ป่วยรายชั่วโมง'
+  const chartData = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    visitCount: data.find((item) => item.hour === hour)?.visitCount ?? 0,
+  }))
+
   // ---------------------------------------------------------------------------
   // Loading state
   // ---------------------------------------------------------------------------
@@ -44,10 +49,8 @@ export function HourlyChart({
     return (
       <Card className={cn(className)}>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">
-            {selectedDate
-              ? `การกระจายรายชั่วโมงสำหรับ ${selectedDate}`
-              : 'การกระจายรายชั่วโมง'}
+          <CardTitle className="text-xl font-semibold">
+            {chartTitle}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -64,10 +67,8 @@ export function HourlyChart({
     return (
       <Card className={cn(className)}>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">
-            {selectedDate
-              ? `การกระจายรายชั่วโมงสำหรับ ${selectedDate}`
-              : 'การกระจายรายชั่วโมง'}
+          <CardTitle className="text-xl font-semibold">
+            {chartTitle}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -83,15 +84,13 @@ export function HourlyChart({
   return (
     <Card className={cn(className)}>
       <CardHeader>
-        <CardTitle className="text-sm font-medium">
-          {selectedDate
-            ? `Hourly Distribution for ${selectedDate}`
-            : 'Hourly Distribution'}
+        <CardTitle className="text-xl font-semibold">
+          {chartTitle}
         </CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={data}>
+          <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
             <XAxis
               dataKey="hour"
@@ -116,12 +115,16 @@ export function HourlyChart({
                 color: 'hsl(var(--popover-foreground))',
               }}
             />
-            <Bar
+            <Line
               dataKey="visitCount"
+              type="monotone"
               fill="hsl(var(--chart-2))"
-              radius={[4, 4, 0, 0]}
+              stroke="hsl(var(--chart-2))"
+              strokeWidth={2}
+              dot={{ r: 3, fill: 'hsl(var(--chart-2))' }}
+              activeDot={{ r: 5 }}
             />
-          </BarChart>
+          </LineChart>
         </ResponsiveContainer>
       </CardContent>
     </Card>

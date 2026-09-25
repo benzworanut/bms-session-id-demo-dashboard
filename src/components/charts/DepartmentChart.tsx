@@ -2,15 +2,6 @@
 // BMS Session KPI Dashboard - Department Horizontal Bar Chart (T063)
 // =============================================================================
 
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from 'recharts'
 import type { DepartmentWorkload } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -21,21 +12,15 @@ interface DepartmentChartProps {
   data: DepartmentWorkload[]
   isLoading: boolean
   onDepartmentClick?: (depcode: string) => void
+  title?: string
   className?: string
-}
-
-/**
- * Truncates long department names so they fit the Y-axis.
- */
-function truncateName(name: string, maxLength = 20): string {
-  if (name.length <= maxLength) return name
-  return `${name.slice(0, maxLength)}...`
 }
 
 export function DepartmentChart({
   data,
   isLoading,
   onDepartmentClick,
+  title = 'รายละเอียดการเข้ารับบริการแยกตามห้องตรวจ OPD',
   className,
 }: DepartmentChartProps) {
   // ---------------------------------------------------------------------------
@@ -45,9 +30,9 @@ export function DepartmentChart({
     return (
       <Card className={cn(className)}>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">รายละเอียดการเข้ารับบริการแยกตามแผนก</CardTitle>
+          <CardTitle className="text-xl font-semibold">{title}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-5">
           <Skeleton className="h-[300px] w-full" />
         </CardContent>
       </Card>
@@ -61,72 +46,57 @@ export function DepartmentChart({
     return (
       <Card className={cn(className)}>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">รายละเอียดการเข้ารับบริการแยกตามแผนก</CardTitle>
+          <CardTitle className="text-xl font-semibold">{title}</CardTitle>
         </CardHeader>
-        <CardContent>
-          <EmptyState title="ไม่มีข้อมูลแผนก" />
+        <CardContent className="pt-5">
+          <EmptyState title="ไม่มีข้อมูลห้องตรวจ OPD" />
         </CardContent>
       </Card>
     )
   }
 
   // ---------------------------------------------------------------------------
-  // Chart
+  // OPD room list
   // ---------------------------------------------------------------------------
-  const chartHeight = Math.max(300, data.length * 40)
+  const maxVisitCount = Math.max(...data.map((item) => item.visitCount))
 
   return (
     <Card className={cn(className)}>
       <CardHeader>
-        <CardTitle className="text-sm font-medium">รายละเอียดการเข้ารับบริการแยกตามแผนก</CardTitle>
+        <CardTitle className="text-xl font-semibold">{title}</CardTitle>
       </CardHeader>
-      <CardContent>
-        <ResponsiveContainer width="100%" height={chartHeight}>
-          <BarChart
-            data={data}
-            layout="vertical"
-            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-            onClick={(state: Record<string, unknown>) => {
-              const activePayload = state?.activePayload as Array<{ payload: DepartmentWorkload }> | undefined
-              if (activePayload?.[0]?.payload && onDepartmentClick) {
-                onDepartmentClick(activePayload[0].payload.departmentCode)
-              }
-            }}
-          >
-            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-            <XAxis
-              type="number"
-              tick={{ fontSize: 12 }}
-              tickLine={false}
-              axisLine={false}
-              allowDecimals={false}
-            />
-            <YAxis
-              type="category"
-              dataKey="departmentName"
-              tick={{ fontSize: 12 }}
-              tickLine={false}
-              axisLine={false}
-              width={150}
-              tickFormatter={(value: string) => truncateName(value)}
-            />
-            <Tooltip
-              formatter={((value: unknown) => [Number(value).toLocaleString(), 'ครั้ง']) as never}
-              contentStyle={{
-                borderRadius: '8px',
-                border: '1px solid hsl(var(--border))',
-                backgroundColor: 'hsl(var(--popover))',
-                color: 'hsl(var(--popover-foreground))',
-              }}
-            />
-            <Bar
-              dataKey="visitCount"
-              fill="hsl(var(--chart-3))"
-              radius={[0, 4, 4, 0]}
-              cursor="pointer"
-            />
-          </BarChart>
-        </ResponsiveContainer>
+      <CardContent className="pt-5">
+        <div className="max-h-[440px] overflow-y-auto pr-2">
+          <div className="grid grid-cols-[2rem_minmax(0,1fr)_4rem] items-center border-b pb-2 text-xs font-semibold text-muted-foreground">
+            <span>#</span>
+            <span>ห้องตรวจ</span>
+            <span className="text-right">จำนวน</span>
+          </div>
+          <div className="divide-y">
+            {data.map((item, index) => (
+              <button
+                key={item.departmentCode}
+                type="button"
+                className="grid w-full grid-cols-[2rem_minmax(0,1fr)_4rem] items-center gap-2 py-2 text-left text-sm hover:bg-muted"
+                onClick={() => onDepartmentClick?.(item.departmentCode)}
+              >
+                <span className="text-xs text-muted-foreground">{index + 1}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{item.departmentName}</span>
+                  <span className="mt-1 block h-1.5 rounded-full bg-muted">
+                    <span
+                      className="block h-full rounded-full bg-[hsl(var(--chart-3))]"
+                      style={{ width: `${maxVisitCount > 0 ? (item.visitCount / maxVisitCount) * 100 : 0}%` }}
+                    />
+                  </span>
+                </span>
+                <span className="text-right font-semibold text-[hsl(var(--chart-3))]">
+                  {item.visitCount.toLocaleString()}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
       </CardContent>
     </Card>
   )

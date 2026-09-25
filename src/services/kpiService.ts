@@ -10,12 +10,19 @@ import type {
   DatabaseType,
   DepartmentWorkload,
   DoctorWorkload,
+  InsuranceGroup,
+  IpdWardWorkload,
   HourlyDistribution,
   KpiSummary,
   OverviewStats,
   PatientTypeDistribution,
   RecentVisit,
+  ReferralStats,
   SqlApiResponse,
+  SpecialtyWorkload,
+  OpdRoomWorkload,
+  OpdDepartmentServiceWorkload,
+  OpdDepartmentDiagnosisWorkload,
   VisitTrend,
 } from '@/types';
 
@@ -40,6 +47,32 @@ function parseQueryResponse<T>(
     return [];
   }
   return response.data.map(mapper);
+}
+
+/** Fix Thai names returned as UTF-8 bytes decoded with Windows-874. */
+function decodeThaiName(value: string): string {
+  if (!value || !/[\u0e00-\u0e7f]/.test(value)) return value;
+
+  const bytes: number[] = [];
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint >= 0x0e01 && codePoint <= 0x0e5b) {
+      bytes.push(codePoint - 0x0d60);
+    } else if (codePoint <= 0xff) {
+      bytes.push(codePoint);
+    } else {
+      return value;
+    }
+  }
+
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(
+      new Uint8Array(bytes),
+    );
+    return /[\u0e00-\u0e7f]/.test(decoded) ? decoded : value;
+  } catch {
+    return value;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -111,8 +144,10 @@ export async function getDepartmentWorkload(
 ): Promise<DepartmentWorkload[]> {
   const sql =
     `SELECT k.depcode as department_code, k.department as department_name, COUNT(*) as visit_count ` +
-    `FROM ovst o LEFT JOIN kskdepartment k ON o.cur_dep = k.depcode ` +
-    `WHERE o.vstdate = ${queryBuilder.currentDate(dbType)} ` +
+    `FROM ovst o ` +
+    `LEFT JOIN opd_dep_queue p ON p.vn = o.vn ` +
+    `LEFT JOIN kskdepartment k ON k.depcode = p.depcode ` +
+    `WHERE k.depcode <> '999' AND o.vstdate = ${queryBuilder.currentDate(dbType)} ` +
     `GROUP BY k.depcode, k.department ` +
     `ORDER BY visit_count DESC`;
   const response = await executeSqlViaApi(sql, config);
@@ -122,6 +157,226 @@ export async function getDepartmentWorkload(
     visitCount: Number(row['visit_count'] ?? 0),
   }));
 }
+
+/** Today's OPD and currently admitted IPD patients grouped by specialty. */
+export async function getSpecialtyWorkload(
+  config: ConnectionConfig,
+  dbType: DatabaseType,
+): Promise<SpecialtyWorkload[]> {
+  const sql =
+    `SELECT specialty, SUM(opd_count) AS opd_count, SUM(ipd_count) AS ipd_count ` +
+    `FROM (` +
+    `SELECT COALESCE(s.name, 'ไม่ระบุ') AS specialty, COUNT(o.vn) AS opd_count, 0 AS ipd_count ` +
+    `FROM ovst o LEFT JOIN spclty s ON s.spclty = o.spclty ` +
+    `WHERE o.vstdate = ${queryBuilder.currentDate(dbType)} ` +
+    `GROUP BY s.name ` +
+    `UNION ALL ` +
+    `SELECT COALESCE(s.name, 'ไม่ระบุ') AS specialty, 0 AS opd_count, COUNT(DISTINCT i.an) AS ipd_count ` +
+    `FROM ipt i LEFT JOIN spclty s ON s.spclty = i.spclty ` +
+    `WHERE i.dchdate IS NULL ` +
+    `GROUP BY s.name` +
+    `) x ` +
+    `GROUP BY specialty ` +
+    `ORDER BY SUM(opd_count + ipd_count) DESC`;
+  const response = await executeSqlViaApi(sql, config);
+  return parseQueryResponse(response, (row) => ({
+    specialty: String(row['specialty'] ?? 'ไม่ระบุ'),
+    opdCount: Number(row['opd_count'] ?? 0),
+    ipdCount: Number(row['ipd_count'] ?? 0),
+  }));
+}
+
+/** Today's outpatient visits grouped by treatment-right price group. */
+export async function getInsuranceGroups(
+  config: ConnectionConfig,
+  dbType: DatabaseType,
+): Promise<InsuranceGroup[]> {
+  const sql =
+    `SELECT COALESCE(p2.pttype_price_group_name, 'ไม่ระบุ') AS right_name, ` +
+    `COUNT(*) AS count ` +
+    `FROM ovst o ` +
+    `LEFT JOIN ipt i ON o.hn = i.hn AND o.vstdate = i.regdate AND (o.vn = i.vn OR o.an = i.an) ` +
+    `LEFT JOIN pttype p ON p.pttype = o.pttype OR p.pttype = i.pttype  ` +
+    `LEFT JOIN pttype_price_group p2 ON p2.pttype_price_group_id = p.pttype_price_group_id ` +
+    `WHERE o.vstdate = ${queryBuilder.currentDate(dbType)} OR i.regdate = ${queryBuilder.currentDate(dbType)} ` +
+    `GROUP BY p2.pttype_price_group_name ` +
+    `ORDER BY count DESC`;
+  const response = await executeSqlViaApi(sql, config);
+  return parseQueryResponse(response, (row) => ({
+    rightName: String(row['right_name'] ?? 'ไม่ระบุ'),
+    count: Number(row['count'] ?? 0),
+  }));
+}
+
+/** OPD visits and Lab/X-ray visits grouped by department. */
+export async function getOpdDepartmentServiceWorkload(
+  config: ConnectionConfig,
+  _dbType: DatabaseType,
+  startDate: string,
+  endDate: string,
+): Promise<OpdDepartmentServiceWorkload[]> {
+  void _dbType
+  const sql =
+    `SELECT COALESCE(d.department, 'ไม่ระบุ') AS department_name, ` +
+    `COUNT(DISTINCT o.vn) AS visit_count, ` +
+    `COUNT(DISTINCT CASE WHEN l.vn IS NOT NULL THEN o.vn END) AS lab_visit_count, ` +
+    `COUNT(DISTINCT CASE WHEN x.vn IS NOT NULL THEN o.vn END) AS xray_visit_count ` +
+    `FROM ovst o ` +
+    `LEFT JOIN kskdepartment d ON d.depcode = o.main_dep ` +
+    `LEFT JOIN (SELECT DISTINCT vn FROM lab_head WHERE order_date >= '${startDate}' AND order_date <= '${endDate}') l ON l.vn = o.vn ` +
+    `LEFT JOIN (SELECT DISTINCT vn FROM xray_report WHERE request_date >= '${startDate}' AND request_date <= '${endDate}') x ON x.vn = o.vn ` +
+    `WHERE o.vstdate >= '${startDate}' AND o.vstdate <= '${endDate}' ` +
+    `GROUP BY d.department ` +
+    `ORDER BY visit_count DESC`
+  const response = await executeSqlViaApi(sql, config)
+  return parseQueryResponse(response, (row) => ({
+    departmentName: String(row['department_name'] ?? 'ไม่ระบุ'),
+    visitCount: Number(row['visit_count'] ?? 0),
+    labVisitCount: Number(row['lab_visit_count'] ?? 0),
+    xrayVisitCount: Number(row['xray_visit_count'] ?? 0),
+  }))
+}
+
+/** OPD diagnosis patients and occurrences grouped by department. */
+export async function getOpdDepartmentDiagnosisWorkload(
+  config: ConnectionConfig,
+  _dbType: DatabaseType,
+  startDate: string,
+  endDate: string,
+): Promise<OpdDepartmentDiagnosisWorkload[]> {
+  void _dbType
+  const sql =
+    `SELECT COALESCE(o.pdx, 'ไม่ระบุ') AS department_name, ` +
+    `COUNT(DISTINCT o.hn) AS patient_count, ` +
+    `COUNT(*) AS diagnosis_count ` +
+    `FROM vn_stat o ` +
+    `WHERE o.vstdate >= '${startDate}' AND o.vstdate <= '${endDate}' ` +
+    `GROUP BY o.pdx ` +
+    `ORDER BY diagnosis_count DESC ` +
+    `LIMIT 10`
+  const response = await executeSqlViaApi(sql, config)
+  return parseQueryResponse(response, (row) => ({
+    departmentName: String(row['department_name'] ?? 'ไม่ระบุ'),
+    patientCount: Number(row['patient_count'] ?? 0),
+    diagnosisCount: Number(row['diagnosis_count'] ?? 0),
+  }))
+}
+
+/** Currently admitted IPD patients grouped by ward. */
+export async function getIpdWardWorkload(
+  config: ConnectionConfig,
+): Promise<IpdWardWorkload[]> {
+  const wardGroup = `CASE
+    WHEN w.ward = '33' AND ip.roomno IN ('3301', '3302') THEN 'ตึกคลอด (LR)'
+    WHEN w.ward = '33' AND ip.roomno IN ('3303', '3304') THEN 'ตึกผู้ป่วยวิกฤต (ICU)'
+    ELSE w.name
+  END`;
+  const sql =
+    `SELECT ${wardGroup} AS ward_name, COUNT(i.an) AS count ` +
+    `FROM ipt i ` +
+    `LEFT JOIN ward w ON w.ward = i.ward ` +
+    `LEFT JOIN iptadm ip ON ip.an = i.an ` +
+    `WHERE i.dchdate IS NULL ` +
+    `GROUP BY ${wardGroup} ` +
+    `ORDER BY count DESC`;
+  const response = await executeSqlViaApi(sql, config);
+  return parseQueryResponse(response, (row) => ({
+    wardName: String(row['ward_name'] ?? 'ไม่ระบุ'),
+    count: Number(row['count'] ?? 0),
+  }));
+}
+
+/** Today's OPD visits grouped by examination room / department. */
+export async function getOpdRoomWorkload(
+  config: ConnectionConfig,
+  dbType: DatabaseType,
+): Promise<OpdRoomWorkload[]> {
+  const sql =
+    `SELECT COALESCE(r.department, 'ไม่ระบุ') AS room_name, COUNT(o.vn) AS count ` +
+    `FROM ovst o LEFT JOIN kskdepartment r ON r.depcode = o.main_dep ` +
+    `WHERE o.vstdate = ${queryBuilder.currentDate(dbType)} ` +
+    `AND o.main_dep IS NOT NULL AND o.an IS NULL ` +
+    `GROUP BY r.department ` +
+    `ORDER BY count DESC`;
+  const response = await executeSqlViaApi(sql, config);
+  return parseQueryResponse(response, (row) => ({
+    roomName: String(row['room_name'] ?? 'ไม่ระบุ'),
+    count: Number(row['count'] ?? 0),
+  }));
+}
+
+/** OPD visits grouped by examination room for a date range. */
+export async function getOpdRoomBreakdown(
+  config: ConnectionConfig,
+  _dbType: DatabaseType,
+  startDate: string,
+  endDate: string,
+): Promise<OpdRoomWorkload[]> {
+  void _dbType;
+  const sql =
+    `SELECT k.depcode AS department_code, k.department AS department_name, COUNT(*) AS visit_count ` +
+    `FROM ovst o ` +
+    `LEFT JOIN opd_dep_queue p ON p.vn = o.vn ` +
+    `LEFT JOIN kskdepartment k ON k.depcode = p.depcode ` +
+    `WHERE o.vstdate >= '${startDate}' AND o.vstdate <= '${endDate}' ` +
+    `AND k.depcode <> '999' ` +
+    `GROUP BY k.depcode, k.department ` +
+    `ORDER BY visit_count DESC`;
+  const response = await executeSqlViaApi(sql, config);
+  return parseQueryResponse(response, (row) => ({
+    roomName: String(row['department_name'] ?? 'ไม่ระบุ'),
+    count: Number(row['visit_count'] ?? 0),
+  }));
+}
+
+/** OPD visits grouped by specialty for a date range. */
+export async function getOpdSpecialtyBreakdown(
+  config: ConnectionConfig,
+  _dbType: DatabaseType,
+  startDate: string,
+  endDate: string,
+): Promise<SpecialtyWorkload[]> {
+  void _dbType;
+  const sql =
+    `SELECT s.spclty AS specialty_code, s.name AS specialty_name, COUNT(*) AS visit_count ` +
+    `FROM ovst o ` +
+    `LEFT JOIN kskdepartment d ON d.depcode = o.main_dep ` +
+    `LEFT JOIN spclty s ON s.spclty = d.spclty ` +
+    `WHERE o.vstdate >= '${startDate}' AND o.vstdate <= '${endDate}' ` +
+    `GROUP BY s.spclty, s.name ` +
+    `ORDER BY visit_count DESC`;
+  const response = await executeSqlViaApi(sql, config);
+  return parseQueryResponse(response, (row) => ({
+    specialty: String(row['specialty_name'] ?? 'ไม่ระบุ'),
+    opdCount: Number(row['visit_count'] ?? 0),
+    ipdCount: 0,
+  }));
+}
+
+/** OPD visits grouped by treatment right for a date range. */
+export async function getOpdInsuranceBreakdown(
+  config: ConnectionConfig,
+  _dbType: DatabaseType,
+  startDate: string,
+  endDate: string,
+): Promise<InsuranceGroup[]> {
+  void _dbType;
+  const sql =
+    `SELECT COALESCE(p2.pttype_price_group_name, 'ไม่ระบุ') AS right_name, ` +
+    `COUNT(*) AS count ` +
+    `FROM ovst o ` +
+    `LEFT JOIN pttype p ON p.pttype = o.pttype ` +
+    `LEFT JOIN pttype_price_group p2 ON p2.pttype_price_group_id = p.pttype_price_group_id ` +
+    `WHERE o.an is null AND o.vstdate >= '${startDate}' AND o.vstdate <= '${endDate}' ` +
+    `GROUP BY p2.pttype_price_group_name ` +
+    `ORDER BY count DESC`;
+  const response = await executeSqlViaApi(sql, config);
+  return parseQueryResponse(response, (row) => ({
+    rightName: String(row['right_name'] ?? 'ไม่ระบุ'),
+    count: Number(row['count'] ?? 0),
+  }));
+}
+
 
 /**
  * Aggregate overview KPI summary (all four counts fetched in parallel).
@@ -184,15 +439,15 @@ export async function getHourlyDistribution(
 ): Promise<HourlyDistribution[]> {
   const hourExpr = queryBuilder.hourExtract(dbType, 'vsttime');
   const sql =
-    `SELECT ${hourExpr} as visit_hour, COUNT(*) as visit_count ` +
+    `SELECT ${hourExpr} as hour_slot, COUNT(*) as count ` +
     `FROM ovst ` +
     `WHERE vstdate = '${date}' ` +
     `GROUP BY ${hourExpr} ` +
-    `ORDER BY visit_hour ASC`;
+    `ORDER BY hour_slot ASC`;
   const response = await executeSqlViaApi(sql, config);
   return parseQueryResponse(response, (row) => ({
-    hour: Number(row['visit_hour'] ?? 0),
-    visitCount: Number(row['visit_count'] ?? 0),
+    hour: Number(row['hour_slot'] ?? 0),
+    visitCount: Number(row['count'] ?? 0),
   }));
 }
 
@@ -209,17 +464,37 @@ export async function getDepartmentBreakdown(
   startDate: string,
   endDate: string,
 ): Promise<DepartmentWorkload[]> {
+  const departmentGroup = `CASE
+    WHEN d.depcode IN ('005','156') THEN 'ทันตกรรม'
+    WHEN d.depcode = '011' THEN 'ER'
+    WHEN d.depcode = '040' THEN 'ฉีดยาทำแผล'
+    WHEN d.depcode IN ('137','112','146','154','142','053','026','122','028','121','055','054','057','123','155') THEN 'NCD'
+    WHEN d.depcode IN ('135','134','147','041') THEN 'แพทย์แผนไทย แพทย์ทางเลือก'
+    WHEN d.depcode IN ('136','141','042','140') THEN 'กายภาพ'
+    WHEN d.depcode IN ('107','091') THEN 'ปฐมภูมิ+คลินิกโรคจากการทำงาน'
+    WHEN d.depcode IN ('164','163','162') THEN 'หน่วยไต'
+    WHEN d.depcode IN ('158','037','034','124','099','159','058','098','045') THEN 'จิตเวชและยาเสพติด'
+    WHEN d.depcode IN ('139','118','119') THEN 'ANC'
+    WHEN d.depcode IN ('032','105','143') THEN 'Ortho'
+    WHEN d.depcode IN ('080','104','132','144','049') THEN 'ศัลยกรรม'
+    WHEN d.depcode IN ('029','117','084','148') THEN 'กุมารเวชกรรม'
+    WHEN d.depcode IN ('031','120') THEN 'จักษุ'
+    WHEN d.depcode IN ('081','114') THEN 'นรีเวช'
+    WHEN d.depcode IN ('160','010','161','110','015','151','152','149','150','014','153','157','145','019','020','021','027') THEN 'OPD'
+    ELSE 'อื่นๆ'
+  END`;
   const sql =
-    `SELECT k.depcode as department_code, k.department as department_name, COUNT(*) as visit_count ` +
-    `FROM ovst o LEFT JOIN kskdepartment k ON o.cur_dep = k.depcode ` +
+    `SELECT ${departmentGroup} AS dept, COUNT(o.vn) AS count ` +
+    `FROM ovst o ` +
+    `LEFT JOIN kskdepartment d ON d.depcode = o.main_dep ` +
     `WHERE o.vstdate >= '${startDate}' AND o.vstdate <= '${endDate}' ` +
-    `GROUP BY k.depcode, k.department ` +
-    `ORDER BY visit_count DESC`;
+    `GROUP BY ${departmentGroup} ` +
+    `ORDER BY count DESC`;
   const response = await executeSqlViaApi(sql, config);
   return parseQueryResponse(response, (row) => ({
-    departmentCode: String(row['department_code'] ?? ''),
-    departmentName: String(row['department_name'] ?? ''),
-    visitCount: Number(row['visit_count'] ?? 0),
+    departmentCode: String(row['dept'] ?? ''),
+    departmentName: String(row['dept'] ?? ''),
+    visitCount: Number(row['count'] ?? 0),
   }));
 }
 
@@ -247,7 +522,7 @@ export async function getDoctorWorkload(
   const response = await executeSqlViaApi(sql, config);
   return parseQueryResponse(response, (row) => ({
     doctorCode: String(row['doctor_code'] ?? ''),
-    doctorName: String(row['doctor_name'] ?? ''),
+    doctorName: decodeThaiName(String(row['doctor_name'] ?? '')),
     patientCount: Number(row['patient_count'] ?? 0),
   }));
 }
@@ -423,7 +698,7 @@ export async function getRecentVisits(
     vstdate: String(row['vstdate'] ?? ''),
     vsttime: String(row['vsttime'] ?? ''),
     departmentName: String(row['department_name'] ?? 'Unknown'),
-    doctorName: String(row['doctor_name'] ?? 'Unknown'),
+    doctorName: decodeThaiName(String(row['doctor_name'] ?? 'Unknown')),
   }));
 }
 
@@ -445,7 +720,7 @@ export async function getOverviewStats(
     // Total active doctors
     `SELECT COUNT(*) as total FROM doctor WHERE active = 'Y' OR active IS NULL`,
     // Total departments
-    `SELECT COUNT(*) as total FROM kskdepartment`,
+    `SELECT COUNT(*) as total FROM kskdepartment WHERE depcode_active = 'Y' `,
   ];
 
   const results = await Promise.all(
@@ -468,8 +743,80 @@ export async function getOverviewStats(
   };
 }
 
+/** Get today's referral and telemedicine activity. */
+export async function getReferralStats(
+  config: ConnectionConfig,
+  dbType: DatabaseType,
+): Promise<ReferralStats> {
+  const count = async (sql: string): Promise<number> => {
+    try {
+      const response = await executeSqlViaApi(sql, config)
+      const rows = parseQueryResponse(response, (row) => Number(row['total'] ?? 0))
+      return rows[0] ?? 0
+    } catch {
+      return 0
+    }
+  }
+
+  const today = queryBuilder.currentDate(dbType)
+  const [referOut, referIn, referBack, telemed] = await Promise.all([
+    count(`SELECT COUNT(*) as total FROM referout WHERE refer_date = ${today}`),
+    count(`SELECT COUNT(*) as total FROM referin WHERE refer_date = ${today}`),
+    count(`SELECT COUNT(*) as total FROM referback WHERE refer_date = ${today}`),
+    count(`SELECT COUNT(*) as total FROM telemed WHERE vstdate = ${today}`),
+  ])
+
+  return { referOut, referIn, referBack, telemed }
+}
+
+/** OPD summary cards for a selected date range. */
+export async function getOpdSummary(
+  config: ConnectionConfig,
+  dbType: DatabaseType,
+  startDate: string,
+  endDate: string,
+): Promise<{
+  opd: number
+  er: number
+  ncd: number
+  telemed: number
+  referOut: number
+  opdPatients: number
+  labOrders: number
+  xrayOrders: number
+}> {
+  const count = async (sql: string): Promise<number> => {
+    try {
+      const response = await executeSqlViaApi(sql, config)
+      const rows = parseQueryResponse(response, (row) => Number(row['total'] ?? 0))
+      return rows[0] ?? 0
+    } catch {
+      return 0
+    }
+  }
+
+  const [opd, er, ncd, telemed, referOut, opdPatients, labOrders, xrayOrders] = await Promise.all([
+    count(`SELECT COUNT(*) as total FROM ovst WHERE vstdate >= '${startDate}' AND vstdate <= '${endDate}'`),
+    count(`SELECT COUNT(*) as total FROM er_regist WHERE vstdate  >= '${startDate}' AND vstdate  <= '${endDate}'`),
+    count(`SELECT COUNT(*) as total ` +
+          `FROM ovst o LEFT JOIN kskdepartment d ON d.depcode = o.main_dep ` +
+          `WHERE o.vstdate >= '${startDate}' AND o.vstdate <= '${endDate}' ` +
+          `AND d.depcode IN ('137','112','146','154','142','053','026','122','028','121','055','054','057','123','155')`),
+    count(`SELECT COUNT(*) as total FROM ovst o ` +
+          `LEFT OUTER JOIN opitemrece op ON op.vn = o.vn ` +
+          `WHERE o.ovstist = '10' AND op.icode = '3004738' AND o.vstdate  >= '${startDate}' AND o.vstdate  <= '${endDate}'`),
+    count(`SELECT COUNT(*) as total FROM referout WHERE refer_date >= '${startDate}' AND refer_date <= '${endDate}'`),
+    count(`SELECT COUNT(DISTINCT hn) as total FROM ovst WHERE vstdate >= '${startDate}' AND vstdate <= '${endDate}'`),
+    count(`SELECT COUNT(*) as total FROM lab_head WHERE order_date >= '${startDate}' AND order_date <= '${endDate}'`),
+    count(`SELECT COUNT(*) as total FROM xray_report WHERE request_date >= '${startDate}' AND request_date <= '${endDate}'`),
+  ])
+
+  void dbType
+  return { opd, er, ncd, telemed, referOut, opdPatients, labOrders, xrayOrders }
+}
+
 /**
- * Get visit counts for the last 7 days as a mini trend.
+ * Get visit counts for the previous 7 calendar days, excluding today.
  */
 export async function getWeeklyMiniTrend(
   config: ConnectionConfig,
@@ -478,7 +825,7 @@ export async function getWeeklyMiniTrend(
   const sql =
     `SELECT ${queryBuilder.dateFormat(dbType, 'vstdate', '%Y-%m-%d')} as visit_date, COUNT(*) as visit_count ` +
     `FROM ovst ` +
-    `WHERE vstdate >= ${queryBuilder.dateSubtract(dbType, 7)} ` +
+    `WHERE vstdate >= ${queryBuilder.dateSubtract(dbType, 7)} AND vstdate < ${queryBuilder.currentDate(dbType)} ` +
     `GROUP BY ${queryBuilder.dateFormat(dbType, 'vstdate', '%Y-%m-%d')} ` +
     `ORDER BY visit_date`;
   const response = await executeSqlViaApi(sql, config);
@@ -506,7 +853,7 @@ export async function getTopDoctorsThisMonth(
   const response = await executeSqlViaApi(sql, config);
   return parseQueryResponse(response, (row) => ({
     doctorCode: String(row['doctor_code'] ?? ''),
-    doctorName: String(row['doctor_name'] ?? 'Unknown'),
+    doctorName: decodeThaiName(String(row['doctor_name'] ?? 'Unknown')),
     patientCount: Number(row['patient_count'] ?? 0),
   }));
 }
@@ -713,6 +1060,7 @@ export async function getDeathSummary(
   config: ConnectionConfig,
   _dbType: DatabaseType,
 ): Promise<{ totalDeaths: number; thisYearDeaths: number; thisMonthDeaths: number }> {
+  void _dbType;
   const currentYear = new Date().getFullYear();
   const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
   const yearStart = `${currentYear}-01-01`;
@@ -753,3 +1101,5 @@ export async function getDiagnosisSummary(
   }));
   return rows[0] ?? { totalDiagnoses: 0, uniqueCodes: 0 };
 }
+
+

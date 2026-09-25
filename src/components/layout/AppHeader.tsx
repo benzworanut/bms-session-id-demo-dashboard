@@ -8,6 +8,7 @@ import { useBmsSessionContext } from '@/contexts/BmsSessionContext';
 import {
   Activity,
   Building2,
+  ExternalLink,
   LayoutDashboard,
   LogOut,
   TrendingUp,
@@ -28,8 +29,9 @@ interface NavTab {
 const NAV_TABS: NavTab[] = [
   { label: 'ภาพรวม', path: '/', icon: LayoutDashboard },
   { label: 'แนวโน้ม', path: '/trends', icon: TrendingUp },
-  { label: 'แผนก', path: '/departments', icon: Building2 },
+  { label: 'OPD', path: '/departments', icon: Building2 },
   { label: 'ข้อมูลประชากร', path: '/demographics', icon: Users },
+  { label: 'ระบบงานอื่นๆ', path: '/other-systems', icon: ExternalLink },
 ];
 
 // ---------------------------------------------------------------------------

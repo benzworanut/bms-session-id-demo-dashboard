@@ -31,7 +31,7 @@ export function KpiCardGrid() {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <KpiCard
-        title="ผู้ป่วยนอก (OPD)"
+        title="ผู้ป่วยนอก (OPD) ครั้ง"
         value={kpiSummary?.opdVisitCount ?? null}
         icon={<Activity className="h-5 w-5" />}
         isLoading={isLoading}

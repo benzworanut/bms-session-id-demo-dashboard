@@ -185,7 +185,11 @@ export async function executeSqlViaApi(
       );
     }
 
-    const data: SqlApiResponse = await response.json() as SqlApiResponse;
+    const data: SqlApiResponse = typeof response.arrayBuffer === 'function'
+      ? JSON.parse(
+        new TextDecoder('utf-8', { fatal: true }).decode(await response.arrayBuffer()),
+      ) as SqlApiResponse
+      : await response.json() as SqlApiResponse;
     return data;
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') {
